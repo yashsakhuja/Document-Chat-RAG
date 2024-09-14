@@ -37,6 +37,8 @@ langchain==0.3.0
 langchain-community==0.3.0
 langchain-core==0.3.0
 langchain-google-genai==2.0.0
+google-generativeai
+langchain_google_genai
 langchain-text-splitters==0.3.0
 langsmith==0.1.120
 markdown-it-py==3.0.0
