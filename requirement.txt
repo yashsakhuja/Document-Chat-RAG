@@ -1,5 +1,7 @@
 streamlit
 google-generativeai
+generative_ai_hub_sdk
+generative-ai-hub-sdk[langchain]
 langchain
 PyPDF2
 chromadb
