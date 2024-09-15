@@ -1,111 +1,93 @@
-import os, tempfile
-from pathlib import Path
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.document_loaders import DirectoryLoader
-#from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import Chroma
-from langchain.chains import ConversationalRetrievalChain
-#from langchain.memory import ConversationBufferMemory
-#from langchain.memory.chat_message_histories import StreamlitChatMessageHistory
-
-
 import streamlit as st
-
-TMP_DIR = Path(__file__).resolve().parent.joinpath('data', 'tmp')
-LOCAL_VECTOR_STORE_DIR = Path(__file__).resolve().parent.joinpath('data', 'vector_store')
+from PyPDF2 import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+import google.generativeai as genai
+from langchain.vectorstores import FAISS,Chroma
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import PromptTemplate
+import os
 
 
 st.set_page_config(page_title="Document Chat with AI", layout="wide")
 
 st.title("Document Chat with AI")
 
-def input_fields():
-    #
-    with st.sidebar:
-        #
-        #if "GOOGLE_API_KEY" in st.secrets:
-            #st.session_state.google_api_key = st.secrets.google_api_key
-        #else:
-        st.session_state.google_api_key = st.text_input("Google API key", type="password")
-    #
-    st.session_state.source_docs = st.file_uploader(label="Upload PDF File", type="pdf", accept_multiple_files=True)
+# This is the first API key input; no need to repeat it in the main function.
+api_key = st.text_input("Enter your Google API Key:", type="password", key="api_key_input")
 
 
+def get_pdf_text(pdf_docs):
+    text = ""
+    for pdf in pdf_docs:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+    return text
 
-def load_documents():
-    loader = DirectoryLoader(TMP_DIR.as_posix(), glob='**/*.pdf')
-    documents = loader.load()
-    return documents
+def get_text_chunks(text):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
+    chunks = text_splitter.split_text(text)
+    return chunks
 
-def split_documents(documents):
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    texts = text_splitter.split_documents(documents)
-    return texts
+def get_vector_store(text_chunks, api_key):
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
+    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+    try:
+        vector_store.save_local("faiss_index")
+        st.success("FAISS index saved successfully!")
+    except Exception as e:
+        st.error(f"Error saving FAISS index: {str(e)}")
 
-def embeddings_on_local_vectordb(texts):
-    vectordb = Chroma.from_documents(texts, embedding=GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=st.session_state.google_api_key),
-                                     persist_directory=LOCAL_VECTOR_STORE_DIR.as_posix())
-    vectordb.persist()
-    retriever = vectordb.as_retriever(search_kwargs={'k': 7})
-    return retriever
 
-def process_documents():
-    if not st.session_state.google_api_key or not st.session_state.source_docs:
-        st.warning(f"Please upload the documents and provide the missing fields.")
+def get_conversational_chain():
+    prompt_template = """
+    Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
+    provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+    Context:\n {context}?\n
+    Question: \n{question}\n
+
+    Answer:
+    """
+    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3, google_api_key=api_key)
+    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+    return chain
+
+def user_input(user_question, api_key):
+    if not os.path.exists("faiss_index/index.faiss"):
+        st.error("FAISS index file not found. Please upload and process your PDF files first.")
+        return
+
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
+    try:
+        new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        docs = new_db.similarity_search(user_question)
+        chain = get_conversational_chain()
+        response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
+        st.write("Reply: ", response["output_text"])
+    except Exception as e:
+        st.error(f"Error loading FAISS index: {str(e)}")
+
+def main():
+    st.sidebar.title("Menu:")
+    pdf_docs = st.sidebar.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", type="pdf", accept_multiple_files=True, key="pdf_uploader")
+    
+    if st.sidebar.button("Submit & Process", key="process_button") and api_key:  # Check if API key is provided before processing
+        with st.spinner("Processing..."):
+            raw_text = get_pdf_text(pdf_docs)
+            text_chunks = get_text_chunks(raw_text)
+            get_vector_store(text_chunks, api_key)
+            st.sidebar.success("Processing complete! Now you can ask questions.")
+
+    user_question = st.text_input("Ask a Question from the PDF Files", key="user_question")
+
+    if user_question and api_key:  # Ensure API key and user question are provided
+        user_input(user_question, api_key)
     else:
-        try:
-            for source_doc in st.session_state.source_docs:
-                #
-                with tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR.as_posix(), suffix='.pdf') as tmp_file:
-                    tmp_file.write(source_doc.read())
-                #
-                documents = load_documents()
-                #
-                for _file in TMP_DIR.iterdir():
-                    temp_file = TMP_DIR.joinpath(_file)
-                    temp_file.unlink()
-                #
-                texts = split_documents(documents)
-                #
-
-                st.session_state.retriever = embeddings_on_local_vectordb(texts)
-
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+        st.write("Please upload PDF files and process them before asking questions.")
 
 
-def query_llm(retriever, query):
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=ChatGoogleGenerativeAI(model="gemini-pro",google_api_key=st.session_state.google_api_key,temperature=0.0),
-        retriever=retriever,
-        return_source_documents=True,
-    )
-    result = qa_chain({'question': query, 'chat_history': st.session_state.messages})
-    result = result['answer']
-    st.session_state.messages.append((query, result))
-    return result
-
-
-def boot():
-    #
-    input_fields()
-    #
-    st.button("Submit Documents", on_click=process_documents)
-    #
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    #
-    for message in st.session_state.messages:
-        st.chat_message('human').write(message[0])
-        st.chat_message('ai').write(message[1])    
-    #
-    if query := st.chat_input():
-        st.chat_message("human").write(query)
-        response = query_llm(st.session_state.retriever, query)
-        st.chat_message("ai").write(response)
-
-if __name__ == '__main__':
-    #
-    boot()
+if __name__ == "__main__":
+    main()
