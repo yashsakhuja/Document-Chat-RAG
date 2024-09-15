@@ -19,6 +19,8 @@ st.divider()
 
 # This is the first API key input; no need to repeat it in the main function.
 api_key = st.sidebar.text_input("Enter your Google API Key and Press Enter:", type="password", key="api_key_input")
+st.sidebar.write("Google AI Studio: https://aistudio.google.com/app/apikey")
+st.sidebar.write("Here's how to obtain it: https://sakhujayashofficia.wixsite.com/yashsakhuja/post/ai-applications-with-langchain-and-gemini")
 st.sidebar.divider()
 
 def get_pdf_text_with_metadata(pdf_docs):
