@@ -112,7 +112,7 @@ def user_input(user_question, api_key):
         st.write("**Reply:** ", response["output_text"])
         st.divider()
         st.divider()
-        st.markdown("<h3 style='color: green;'>🔍 Matched Context & Source (Top 3) </h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: green;'>🔍 Top 3 Matched Context & Source</h3>", unsafe_allow_html=True)
         for source in matched_sources:
             st.write(f"**Document:** {source['doc_name']} (Page {source['page_num']})")
             st.write(f"**Context:** {source['context']}")
