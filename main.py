@@ -91,7 +91,7 @@ def user_input(user_question, api_key):
         new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         
         # Perform the similarity search
-        docs = new_db.similarity_search(user_question,k=1)
+        docs = new_db.similarity_search(user_question,k=3)
         
         # Extract the source metadata for each matched chunk
         matched_sources = []
@@ -110,7 +110,7 @@ def user_input(user_question, api_key):
         st.write("**Reply:** ", response["output_text"])
         st.divider()
         st.divider()
-        st.write("### 🔍 Matched Contexts & Sources")
+        st.markdown("<h3 style='color: green;'>🔍 Matched Context & Source</h3>", unsafe_allow_html=True)
         for source in matched_sources:
             st.write(f"**Document:** {source['doc_name']} (Page {source['page_num']})")
             st.write(f"**Context:** {source['context']}")
